@@ -45,6 +45,8 @@ jobs:
           python-version: '3.11'
 
       - name: Validate Python engine
+        env:
+          PYTHONIOENCODING: utf-8
         run: |
           python -m py_compile src/statusline.py
           echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":100}' | python src/statusline.py

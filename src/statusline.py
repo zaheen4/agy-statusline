@@ -108,6 +108,12 @@ def extract_quota(payload, model_str):
     return " \033[90m│\033[0m 5h: \033[90m--%\033[0m \033[90m(Wk: \033[90m--%\033[0m\033[90m)"
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     try:
         raw_stdin = sys.stdin.read()
         payload = json.loads(raw_stdin) if raw_stdin.strip() else {}
@@ -169,8 +175,12 @@ def main():
 
     # Output assembly
     output = f"{ssh_badge}{mode_badge}{sb_badge} \033[90m│\033[0m \033[1m{model_disp}\033[0m{git_segment}{quota_segment}{ctx_segment}\n"
-    sys.stdout.write(output)
-    sys.stdout.flush()
+    try:
+        sys.stdout.write(output)
+        sys.stdout.flush()
+    except UnicodeEncodeError:
+        sys.stdout.buffer.write(output.encode("utf-8", errors="replace"))
+        sys.stdout.buffer.flush()
 
 if __name__ == "__main__":
     main()
