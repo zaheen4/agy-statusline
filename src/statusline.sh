@@ -1,116 +1,133 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-# Read stdin
-INPUT="$(cat)"
-[ -z "$INPUT" ] && INPUT="{}"
+# Read JSON state payload from stdin
+input=$(cat)
 
-# Terminal width
-COLS="${COLUMNS:-}"
-if [ -z "$COLS" ]; then
-    COLS=$(tput cols 2>/dev/null || echo 120)
+# Extract telemetry via jq with safe fallbacks
+model=$(jq -r 'if (.model | type) == "object" then (.model.display_name // .model.id // "Gemini") elif (.model | type) == "string" then .model else "Gemini" end' <<< "$input" 2>/dev/null)
+mode=$(jq -r 'if (.cycle_mode // "") == "" then "default" else .cycle_mode end' <<< "$input" 2>/dev/null)
+ctx_pct=$(jq -r '.context_window.used_percentage // (.context.used_tokens / (.context.max_tokens // 1) * 100) // 0' <<< "$input" 2>/dev/null | awk '{printf "%.1f", $1}')
+pct_int=$(jq -r '.context_window.used_percentage // (.context.used_tokens / (.context.max_tokens // 1) * 100) // 0' <<< "$input" 2>/dev/null | awk '{printf "%d", $1}')
+branch=$(jq -r '.vcs.branch // empty' <<< "$input" 2>/dev/null)
+dirty=$(jq -r '.vcs.dirty // false' <<< "$input" 2>/dev/null)
+sandbox=$(jq -r '.sandbox.enabled // false' <<< "$input" 2>/dev/null)
+
+# Terminal column width detection directly from native payload
+cols=$(jq -r '.terminal_width // empty' <<< "$input" 2>/dev/null)
+if ! [[ "$cols" =~ ^[0-9]+$ ]] || [ "$cols" -le 0 ]; then
+  cols=${COLUMNS:-120}
 fi
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=120
 
-# Parsing via python3 or jq or basic sed fallback
-if command -v jq >/dev/null 2>&1; then
-    MODEL=$(echo "$INPUT" | jq -r '.model // "Default"')
-    CYCLE_MODE=$(echo "$INPUT" | jq -r '.cycle_mode // "default"' | tr '[:upper:]' '[:lower:]')
-    BRANCH=$(echo "$INPUT" | jq -r '.vcs.branch // ""')
-    DIRTY=$(echo "$INPUT" | jq -r '.vcs.dirty // false')
-    USED_TOKENS=$(echo "$INPUT" | jq -r '.context.used_tokens // 0')
-    MAX_TOKENS=$(echo "$INPUT" | jq -r '.context.max_tokens // 1')
+# Dynamic Model & Effort Normalizer
+format_model_name() {
+  local raw="$1"
+
+  # 1. Parse effort levels
+  local effort=""
+  if [[ "$raw" =~ \([Ee]xtra[[:space:]]+[Hh]igh\) ]] || [[ "$raw" =~ \([Xx][Hh]igh\) ]]; then
+    effort=" [XH]"
+  elif [[ "$raw" =~ \(([Mm]ax)\) ]]; then
+    effort=" [MAX]"
+  elif [[ "$raw" =~ \(([Hh]igh)\) ]]; then
+    effort=" [H]"
+  elif [[ "$raw" =~ \(([Mm]edium)\) ]]; then
+    effort=" [M]"
+  elif [[ "$raw" =~ \(([Ll]ow)\) ]]; then
+    effort=" [L]"
+  elif [[ "$raw" =~ \(([Tt]hinking)\) ]]; then
+    effort=" [T]"
+  fi
+
+  # 2. Strip trailing parenthetical text
+  local clean="${raw%% (*}"
+
+  # 3. Strip redundant provider brand prefix
+  clean="${clean#Gemini }"
+  clean="${clean#Claude }"
+  clean="${clean#Google }"
+
+  echo "${clean}${effort}"
+}
+
+model_disp=$(format_model_name "$model")
+
+# Native Quota Telemetry (with cache fallback)
+if [[ "$model" =~ [Cc]laude|[Gg]pt ]]; then
+  key_5h="3p-5h"
+  key_wk="3p-weekly"
+  target_group="Claude and GPT models"
 else
-    # Fallback parsing if jq is unavailable
-    PARSED=$(python3 - "$INPUT" <<'PYEOF'
-import sys, json
-try:
-    p = json.loads(sys.argv[1]) if len(sys.argv) > 1 and sys.argv[1] else {}
-except Exception:
-    p = {}
-model = p.get("model", "Default")
-mode = p.get("cycle_mode", "default").lower()
-vcs = p.get("vcs", {})
-branch = vcs.get("branch", "")
-dirty = "true" if vcs.get("dirty", False) else "false"
-ctx = p.get("context", {})
-used = ctx.get("used_tokens", 0)
-max_t = ctx.get("max_tokens", 1)
-print(f"{model}\t{mode}\t{branch}\t{dirty}\t{used}\t{max_t}")
-PYEOF
-)
-    IFS=$'\t' read -r MODEL CYCLE_MODE BRANCH DIRTY USED_TOKENS MAX_TOKENS <<< "$PARSED"
+  key_5h="gemini-5h"
+  key_wk="gemini-weekly"
+  target_group="Gemini Models"
 fi
 
-# Model cleaning
-MODEL_CLEAN=$(echo "$MODEL" | sed -E \
-    -e 's/^(Gemini|Claude|Google)[[:space:]]+//' \
-    -e 's/\(Extra High\)|\(XHigh\)/[XH]/I' \
-    -e 's/\(Max\)/[MAX]/I' \
-    -e 's/\(High\)/[H]/I' \
-    -e 's/\(Medium\)/[M]/I' \
-    -e 's/\(Low\)/[L]/I' \
-    -e 's/\(Thinking\)/[T]/I')
+# 1. Direct from JSON payload
+five_h_pct=$(jq -r --arg k "$key_5h" '.quota[$k].remaining_fraction // empty' <<< "$input" 2>/dev/null | awk '{printf "%d", ($1 * 100) + 0.5}')
+weekly_pct=$(jq -r --arg k "$key_wk" '.quota[$k].remaining_fraction // empty' <<< "$input" 2>/dev/null | awk '{printf "%d", ($1 * 100) + 0.5}')
 
-# Mode badge
-case "$CYCLE_MODE" in
-    auto) MODE_BADGE=$'\033[42;30m AUTO \033[0m' ;;
-    plan) MODE_BADGE=$'\033[46;30m PLAN \033[0m' ;;
-    accept-edits) MODE_BADGE=$'\033[43;30m EDITS \033[0m' ;;
-    *) MODE_BADGE=$'\033[44;30m DEFAULT \033[0m' ;;
+# 2. Secondary fallback to /tmp/agy_quota_cache.json if payload omitted quota
+CACHE_FILE="${TMPDIR:-/tmp}/agy_quota_cache.json"
+[ ! -f "$CACHE_FILE" ] && CACHE_FILE="${TEMP:-/tmp}/agy_quota_cache.json"
+
+if [ -z "$five_h_pct" ] && [ -f "$CACHE_FILE" ]; then
+  five_h_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="5h") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
+  weekly_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="weekly") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
+fi
+
+quota_info=""
+if [ -n "$five_h_pct" ] && [ -n "$weekly_pct" ]; then
+  [ "$five_h_pct" -ge 40 ] && c_5h=$'\033[32m' || { [ "$five_h_pct" -ge 20 ] && c_5h=$'\033[33m' || c_5h=$'\033[31m'; }
+  [ "$weekly_pct" -ge 40 ] && c_wk=$'\033[32m' || { [ "$weekly_pct" -ge 20 ] && c_wk=$'\033[33m' || c_wk=$'\033[31m'; }
+  quota_info=$' \033[90m│\033[0m 5h: '"${c_5h}${five_h_pct}%"$'\033[0m \033[90m(Wk: '"${c_wk}${weekly_pct}%"$'\033[0m\033[90m)'
+else
+  quota_info=$' \033[90m│\033[0m 5h: \033[90m--%\033[0m \033[90m(Wk: \033[90m--%\033[0m\033[90m)'
+fi
+
+# Context Bar Tiering (Prioritizing Quota Over Context)
+# Tier 1 (cols >= 85): Full 5-block meter with 1-decimal percentage
+# Tier 2 (70 <= cols < 85): Compact percentage only (no block bar)
+# Tier 3 (cols < 70): Context omitted completely to preserve quota single-line density
+ctx_info=""
+if (( cols >= 85 )); then
+  filled=$(( pct_int / 20 ))
+  (( filled > 5 )) && filled=5
+  (( filled < 0 )) && filled=0
+  empty=$(( 5 - filled ))
+  bar=""
+  for ((i=0; i<filled; i++)); do bar+="█"; done
+  for ((i=0; i<empty; i++)); do bar+="░"; done
+  ctx_info=$' \033[90m│\033[0m \033[36mCtx: ['"$bar"$'] '"$ctx_pct"$'%\033[0m'
+elif (( cols >= 70 )); then
+  ctx_info=$' \033[90m│\033[0m \033[36mCtx: '"$pct_int"$'%\033[0m'
+fi
+
+# Execution mode badge
+case "$mode" in
+  auto)         mode_badge=$'\033[1;30;42m AUTO \033[0m' ;;
+  plan)         mode_badge=$'\033[1;30;46m PLAN \033[0m' ;;
+  accept-edits) mode_badge=$'\033[1;30;43m EDITS \033[0m' ;;
+  default)      mode_badge=$'\033[1;37;44m DEFAULT \033[0m' ;;
+  *)            mode_badge=$'\033[1;37;44m '"$mode"$'\033[0m' ;;
 esac
 
-# SSH check
-SSH_BADGE=""
-if [ -n "${SSH_CLIENT:-}" ] || [ -n "${SSH_TTY:-}" ] || [ -n "${SSH_CONNECTION:-}" ]; then
-    SSH_BADGE=$'\033[38;5;244m󰢹 SSH\033[0m '
+# Compact sandbox status
+[ "$sandbox" = "true" ] && sb=$' \033[32m\033[0m' || sb=""
+
+# Host indicator (SSH detection)
+host_info=""
+if [ -n "${SSH_TTY:-}" ] || [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_CLIENT:-}" ]; then
+  host_info=$'\033[38;2;166;173;200m\U000F08B9 SSH\033[0m '
 fi
 
-# Git segment
-GIT_SEG=""
-if [ -n "$BRANCH" ]; then
-    DIRTY_FLAG=""
-    [ "$DIRTY" = "true" ] && DIRTY_FLAG="*"
-    GIT_SEG=$'\033[34m󰘬 '"$BRANCH$DIRTY_FLAG"$'\033[0m'
+# VCS status strictly from JSON payload (no external git subshell execution)
+git_info=""
+if [ -n "$branch" ]; then
+  [ "$dirty" = "true" ] && git_status=$'\033[33m*\033[0m' || git_status=""
+  git_info=$' \033[90m│\033[0m \033[35m '"$branch$git_status"
 fi
 
-# Context meter
-PCT=$(awk -v u="$USED_TOKENS" -v m="$MAX_TOKENS" 'BEGIN { if (m <= 0) printf "0.0"; else printf "%.1f", (u/m)*100 }')
-FILLED=$(awk -v p="$PCT" 'BEGIN { f = int(p / 20); if (f > 5) f = 5; if (f < 0) f = 0; print f }')
-BLOCKS=""
-for i in 0 1 2 3 4; do
-    if [ "$i" -lt "$FILLED" ]; then
-        BLOCKS="${BLOCKS}█"
-    else
-        BLOCKS="${BLOCKS}░"
-    fi
-done
-CTX_SEG=$'\033[35m['"$BLOCKS"$'] '"$PCT"$'%\033[0m'
-
-# Quota check
-QUOTA_SEG=""
-CACHE_PATH="${TMPDIR:-/tmp}/agy_quota_cache.json"
-[ ! -f "$CACHE_PATH" ] && CACHE_PATH="${TEMP:-/tmp}/agy_quota_cache.json"
-if [ -f "$CACHE_PATH" ]; then
-    H5=$(grep -o '"5h_pct"[^,}]*' "$CACHE_PATH" 2>/dev/null | grep -o '[0-9]\+' || true)
-    WK=$(grep -o '"week_pct"[^,}]*' "$CACHE_PATH" 2>/dev/null | grep -o '[0-9]\+' || true)
-    if [ -n "$H5" ] && [ -n "$WK" ]; then
-        QUOTA_SEG=$'\033[36mQ:'"$H5"'%/'"$WK"'%\033[0m'
-    fi
-fi
-
-# Assembly
-DIV=$' \033[38;5;239m│\033[0m '
-LINE="${SSH_BADGE}"$'\033[32m\033[0m '"${MODE_BADGE} "$'\033[1m'"${MODEL_CLEAN}"$'\033[0m'
-
-if [ -n "$GIT_SEG" ]; then
-    LINE="${LINE}${DIV}${GIT_SEG}"
-fi
-
-if [ "$COLS" -ge 85 ]; then
-    if [ -n "$QUOTA_SEG" ]; then
-        LINE="${LINE}${DIV}${QUOTA_SEG}"
-    fi
-    LINE="${LINE}${DIV}${CTX_SEG}"
-fi
-
-printf " %s \n" "$LINE"
+# Render formatted status line
+printf "%s%s%s \033[90m│\033[0m \033[1m%s\033[0m%s%s%s\n" \
+  "$host_info" "$mode_badge" "$sb" "$model_disp" "$git_info" "$quota_info" "$ctx_info"

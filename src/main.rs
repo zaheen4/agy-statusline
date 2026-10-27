@@ -232,8 +232,12 @@ fn parse_json(input: &str) -> Option<JsonValue> {
     JsonParser::new(input).parse_value()
 }
 
-#[cfg(unix)]
-fn get_terminal_width() -> usize {
+fn get_terminal_width(payload: &JsonValue) -> usize {
+    if let Some(w) = payload.get("terminal_width").and_then(|t| t.as_f64()) {
+        if w > 0.0 {
+            return w as usize;
+        }
+    }
     if let Ok(cols_str) = env::var("COLUMNS") {
         if let Ok(c) = cols_str.trim().parse::<usize>() {
             if c > 0 {
@@ -241,39 +245,30 @@ fn get_terminal_width() -> usize {
             }
         }
     }
-    #[repr(C)]
-    struct Winsize {
-        ws_row: u16,
-        ws_col: u16,
-        ws_xpixel: u16,
-        ws_ypixel: u16,
-    }
-    extern "C" {
-        fn ioctl(fd: i32, request: u64, ...) -> i32;
-    }
-    const TIOCGWINSZ: u64 = 0x5413;
-    let mut ws = Winsize {
-        ws_row: 0,
-        ws_col: 0,
-        ws_xpixel: 0,
-        ws_ypixel: 0,
-    };
-    for fd in [1, 0, 2] {
-        unsafe {
-            if ioctl(fd, TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
-                return ws.ws_col as usize;
-            }
+    #[cfg(unix)]
+    {
+        #[repr(C)]
+        struct Winsize {
+            ws_row: u16,
+            ws_col: u16,
+            ws_xpixel: u16,
+            ws_ypixel: u16,
         }
-    }
-    120
-}
-
-#[cfg(not(unix))]
-fn get_terminal_width() -> usize {
-    if let Ok(cols_str) = env::var("COLUMNS") {
-        if let Ok(c) = cols_str.trim().parse::<usize>() {
-            if c > 0 {
-                return c;
+        extern "C" {
+            fn ioctl(fd: i32, request: u64, ...) -> i32;
+        }
+        const TIOCGWINSZ: u64 = 0x5413;
+        let mut ws = Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        for fd in [1, 0, 2] {
+            unsafe {
+                if ioctl(fd, TIOCGWINSZ, &mut ws) == 0 && ws.ws_col > 0 {
+                    return ws.ws_col as usize;
+                }
             }
         }
     }
@@ -281,99 +276,110 @@ fn get_terminal_width() -> usize {
 }
 
 fn format_model(model_raw: &str) -> String {
-    let mut clean = model_raw.trim().to_string();
-    if clean.is_empty() {
-        return "Default".to_string();
+    let raw = model_raw.trim();
+    if raw.is_empty() {
+        return "Gemini".to_string();
     }
+
+    let mut effort = "";
+    let lower = raw.to_lowercase();
+    if lower.contains("(extra high)") || lower.contains("(xhigh)") {
+        effort = " [XH]";
+    } else if lower.contains("(max)") {
+        effort = " [MAX]";
+    } else if lower.contains("(high)") {
+        effort = " [H]";
+    } else if lower.contains("(medium)") {
+        effort = " [M]";
+    } else if lower.contains("(low)") {
+        effort = " [L]";
+    } else if lower.contains("(thinking)") {
+        effort = " [T]";
+    }
+
+    let clean = if let Some(idx) = raw.find('(') {
+        raw[..idx].trim()
+    } else {
+        raw
+    };
+
+    let mut clean_str = clean.to_string();
     for prefix in &["Gemini ", "Claude ", "Google "] {
-        if clean.starts_with(prefix) {
-            clean = clean[prefix.len()..].trim_start().to_string();
+        if clean_str.starts_with(prefix) {
+            clean_str = clean_str[prefix.len()..].trim_start().to_string();
             break;
         }
     }
-    let replacements = [
-        ("(Extra High)", "[XH]"),
-        ("(XHigh)", "[XH]"),
-        ("(Max)", "[MAX]"),
-        ("(High)", "[H]"),
-        ("(Medium)", "[M]"),
-        ("(Low)", "[L]"),
-        ("(Thinking)", "[T]"),
-    ];
-    for (from, to) in &replacements {
-        clean = clean.replace(from, to);
-    }
-    clean.trim().to_string()
+
+    format!("{}{}", clean_str, effort)
 }
 
-fn build_context_gauge(used_tokens: f64, max_tokens: f64) -> String {
-    if max_tokens <= 0.0 {
-        return "[░░░░░] 0.0%".to_string();
-    }
-    let pct = (used_tokens / max_tokens) * 100.0;
-    let filled = (pct / 20.0).floor() as usize;
-    let filled = filled.min(5);
-    let mut blocks = String::new();
-    for i in 0..5 {
-        if i < filled {
-            blocks.push('█');
-        } else {
-            blocks.push('░');
+fn format_quota_colored(pct: Option<i64>) -> String {
+    match pct {
+        Some(p) => {
+            let color = if p >= 40 {
+                "\x1b[32m"
+            } else if p >= 20 {
+                "\x1b[33m"
+            } else {
+                "\x1b[31m"
+            };
+            format!("{}{}%", color, p)
         }
+        None => "\x1b[90m--%".to_string(),
     }
-    format!("[{}] {:.1}%", blocks, pct)
 }
 
-fn read_quota_cache() -> Option<String> {
-    let mut cache_path = env::var("TMPDIR")
-        .map(|d| format!("{}/agy_quota_cache.json", d))
-        .unwrap_or_else(|_| "/tmp/agy_quota_cache.json".to_string());
+fn extract_quota(payload: &JsonValue, model: &str) -> String {
+    let lower = model.to_lowercase();
+    let is_3p = lower.contains("claude") || lower.contains("gpt");
+    let key_5h = if is_3p { "3p-5h" } else { "gemini-5h" };
+    let key_wk = if is_3p { "3p-weekly" } else { "gemini-weekly" };
+    let target_group = if is_3p { "Claude and GPT models" } else { "Gemini Models" };
 
-    if !std::path::Path::new(&cache_path).exists() {
-        if let Ok(temp) = env::var("TEMP") {
-            cache_path = format!("{}/agy_quota_cache.json", temp);
+    let mut h5_pct = None;
+    let mut wk_pct = None;
+
+    // 1. Direct from payload.quota
+    if let Some(quota_obj) = payload.get("quota") {
+        if let Some(b5) = quota_obj.get(key_5h) {
+            if let Some(frac) = b5.get("remaining_fraction").and_then(|f| f.as_f64()) {
+                h5_pct = Some((frac * 100.0).round() as i64);
+            }
+        }
+        if let Some(bw) = quota_obj.get(key_wk) {
+            if let Some(frac) = bw.get("remaining_fraction").and_then(|f| f.as_f64()) {
+                wk_pct = Some((frac * 100.0).round() as i64);
+            }
         }
     }
 
-    let content = fs::read_to_string(&cache_path).ok()?;
-    let json = parse_json(&content)?;
-
-    // 1. Flat format
-    if let (Some(h5), Some(wk)) = (json.get("5h_pct"), json.get("week_pct")) {
-        let h5_str = match h5 {
-            JsonValue::Number(n) => format!("{:.0}", n),
-            JsonValue::String(s) => s.clone(),
-            _ => "--".to_string(),
-        };
-        let wk_str = match wk {
-            JsonValue::Number(n) => format!("{:.0}", n),
-            JsonValue::String(s) => s.clone(),
-            _ => "--".to_string(),
-        };
-        return Some(format!("Q:{}%/{}%", h5_str, wk_str));
-    }
-
-    // 2. Command groups format
-    if let Some(cmd) = json.get("command") {
-        if let Some(data) = cmd.get("data") {
-            if let Some(groups) = data.get("groups").and_then(|g| g.as_array()) {
-                for g in groups {
-                    if let Some(buckets) = g.get("buckets").and_then(|b| b.as_array()) {
-                        let mut h5_val = None;
-                        let mut wk_val = None;
-                        for b in buckets {
-                            let window = b.get("window").and_then(|w| w.as_str()).unwrap_or("");
-                            let frac = b.get("remaining_fraction").and_then(|f| f.as_f64()).unwrap_or(0.0);
-                            if window == "5h" {
-                                h5_val = Some((frac * 100.0).round() as i64);
-                            } else if window == "weekly" {
-                                wk_val = Some((frac * 100.0).round() as i64);
+    // 2. Secondary fallback to /tmp/agy_quota_cache.json
+    if h5_pct.is_none() || wk_pct.is_none() {
+        let mut cache_path = env::var("TMPDIR")
+            .map(|d| format!("{}/agy_quota_cache.json", d))
+            .unwrap_or_else(|_| "/tmp/agy_quota_cache.json".to_string());
+        if !std::path::Path::new(&cache_path).exists() {
+            if let Ok(temp) = env::var("TEMP") {
+                cache_path = format!("{}/agy_quota_cache.json", temp);
+            }
+        }
+        if let Ok(content) = fs::read_to_string(&cache_path) {
+            if let Some(json) = parse_json(&content) {
+                if let Some(groups) = json.get("command").and_then(|c| c.get("data")).and_then(|d| d.get("groups")).and_then(|g| g.as_array()) {
+                    for g in groups {
+                        if g.get("name").and_then(|n| n.as_str()) == Some(target_group) {
+                            if let Some(buckets) = g.get("buckets").and_then(|b| b.as_array()) {
+                                for b in buckets {
+                                    let win = b.get("window").and_then(|w| w.as_str()).unwrap_or("");
+                                    let frac = b.get("remaining_fraction").and_then(|f| f.as_f64()).unwrap_or(0.0);
+                                    if win == "5h" && h5_pct.is_none() {
+                                        h5_pct = Some((frac * 100.0).round() as i64);
+                                    } else if win == "weekly" && wk_pct.is_none() {
+                                        wk_pct = Some((frac * 100.0).round() as i64);
+                                    }
+                                }
                             }
-                        }
-                        if h5_val.is_some() || wk_val.is_some() {
-                            let h5_str = h5_val.map(|v| format!("{}%", v)).unwrap_or_else(|| "--%".to_string());
-                            let wk_str = wk_val.map(|v| format!("{}%", v)).unwrap_or_else(|| "--%".to_string());
-                            return Some(format!("Q:{}/{}", h5_str, wk_str));
                         }
                     }
                 }
@@ -381,22 +387,53 @@ fn read_quota_cache() -> Option<String> {
         }
     }
 
-    None
+    let h5_str = format_quota_colored(h5_pct);
+    let wk_str = format_quota_colored(wk_pct);
+    format!(" \x1b[90m│\x1b[0m 5h: {}\x1b[0m \x1b[90m(Wk: {}\x1b[0m\x1b[90m)", h5_str, wk_str)
+}
+
+fn build_context_gauge(pct: f64, cols: usize) -> String {
+    let pct_int = pct.round() as i64;
+    if cols >= 85 {
+        let filled = (pct_int / 20).clamp(0, 5) as usize;
+        let mut blocks = String::new();
+        for i in 0..5 {
+            if i < filled {
+                blocks.push('█');
+            } else {
+                blocks.push('░');
+            }
+        }
+        format!(" \x1b[90m│\x1b[0m \x1b[36mCtx: [{}] {:.1}%\x1b[0m", blocks, pct)
+    } else if cols >= 70 {
+        format!(" \x1b[90m│\x1b[0m \x1b[36mCtx: {}%\x1b[0m", pct_int)
+    } else {
+        String::new()
+    }
 }
 
 fn main() {
-    let cols = get_terminal_width();
-
     let mut raw_stdin = String::new();
     let _ = io::stdin().read_to_string(&mut raw_stdin);
     let payload = parse_json(&raw_stdin).unwrap_or(JsonValue::Null);
 
+    let cols = get_terminal_width(&payload);
+
     // 1. Identity & Reasoning
-    let raw_model = payload
-        .get("model")
-        .and_then(|m| m.as_str())
-        .unwrap_or("Default");
-    let model_str = format_model(raw_model);
+    let raw_model = if let Some(m_obj) = payload.get("model") {
+        match m_obj {
+            JsonValue::Object(_) => m_obj
+                .get("display_name")
+                .or_else(|| m_obj.get("id"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("Gemini"),
+            JsonValue::String(s) => s.as_str(),
+            _ => "Gemini",
+        }
+    } else {
+        "Gemini"
+    };
+    let model_disp = format_model(raw_model);
 
     // 2. Execution Mode Badges
     let raw_mode = payload
@@ -406,68 +443,64 @@ fn main() {
         .to_lowercase();
 
     let mode_badge = match raw_mode.as_str() {
-        "auto" => "\x1b[42;30m AUTO \x1b[0m",
-        "plan" => "\x1b[46;30m PLAN \x1b[0m",
-        "accept-edits" => "\x1b[43;30m EDITS \x1b[0m",
-        _ => "\x1b[44;30m DEFAULT \x1b[0m",
+        "auto" => "\x1b[1;30;42m AUTO \x1b[0m",
+        "plan" => "\x1b[1;30;46m PLAN \x1b[0m",
+        "accept-edits" => "\x1b[1;30;43m EDITS \x1b[0m",
+        _ => "\x1b[1;37;44m DEFAULT \x1b[0m",
     };
 
-    // 3. Host / SSH Detection
-    let has_ssh = env::var("SSH_CLIENT").is_ok()
-        || env::var("SSH_TTY").is_ok()
-        || env::var("SSH_CONNECTION").is_ok();
-    let ssh_badge = if has_ssh {
-        "\x1b[38;5;244m󰢹 SSH\x1b[0m "
+    // 3. Compact sandbox status
+    let sandbox = payload
+        .get("sandbox")
+        .and_then(|s| s.get("enabled"))
+        .and_then(|e| e.as_bool())
+        .unwrap_or(false);
+    let sb_badge = if sandbox { " \x1b[32m\x1b[0m" } else { "" };
+
+    // 4. Host / SSH Detection
+    let has_ssh = env::var("SSH_TTY").is_ok()
+        || env::var("SSH_CONNECTION").is_ok()
+        || env::var("SSH_CLIENT").is_ok();
+    let host_info = if has_ssh {
+        "\x1b[38;2;166;173;200m\u{F08B9} SSH\x1b[0m "
     } else {
         ""
     };
 
-    // 4. Git Metadata
-    let mut git_segment = String::new();
+    // 5. VCS status strictly from JSON payload
+    let mut git_info = String::new();
     if let Some(vcs) = payload.get("vcs") {
         if let Some(branch) = vcs.get("branch").and_then(|b| b.as_str()) {
             if !branch.is_empty() {
                 let dirty = if vcs.get("dirty").and_then(|d| d.as_bool()).unwrap_or(false) {
-                    "*"
+                    "\x1b[33m*\x1b[0m"
                 } else {
                     ""
                 };
-                git_segment = format!("\x1b[34m󰘬 {}{}\x1b[0m", branch, dirty);
+                git_info = format!(" \x1b[90m│\x1b[0m \x1b[35m {}{}", branch, dirty);
             }
         }
     }
 
-    // 5. Context Meter
-    let ctx_segment = if let Some(ctx) = payload.get("context") {
+    // 6. Quota
+    let quota_info = extract_quota(&payload, raw_model);
+
+    // 7. Context bar tiering
+    let ctx_pct = if let Some(cw) = payload.get("context_window") {
+        cw.get("used_percentage").and_then(|p| p.as_f64()).unwrap_or(0.0)
+    } else if let Some(ctx) = payload.get("context") {
         let used = ctx.get("used_tokens").and_then(|u| u.as_f64()).unwrap_or(0.0);
-        let max = ctx.get("max_tokens").and_then(|m| m.as_f64()).unwrap_or(1.0);
-        let gauge = build_context_gauge(used, max);
-        format!("\x1b[35m{}\x1b[0m", gauge)
+        let max_t = ctx.get("max_tokens").and_then(|m| m.as_f64()).unwrap_or(1.0);
+        (used / max_t) * 100.0
     } else {
-        let gauge = build_context_gauge(0.0, 1.0);
-        format!("\x1b[35m{}\x1b[0m", gauge)
+        0.0
     };
+    let ctx_info = build_context_gauge(ctx_pct, cols);
 
-    // Assemble segments
-    let mut segments = Vec::new();
-    segments.push(format!(
-        "{}\x1b[32m\x1b[0m {} \x1b[1m{}\x1b[0m",
-        ssh_badge, mode_badge, model_str
-    ));
-
-    if !git_segment.is_empty() {
-        segments.push(git_segment);
-    }
-
-    if cols >= 85 {
-        if let Some(quota_str) = read_quota_cache() {
-            segments.push(format!("\x1b[36m{}\x1b[0m", quota_str));
-        }
-        segments.push(ctx_segment);
-    }
-
-    let divider = " \x1b[38;5;239m│\x1b[0m ";
-    let output = segments.join(divider);
-    let _ = writeln!(io::stdout(), " {} ", output);
+    let _ = writeln!(
+        io::stdout(),
+        "{}{}{} \x1b[90m│\x1b[0m \x1b[1m{}\x1b[0m{}{}{}",
+        host_info, mode_badge, sb_badge, model_disp, git_info, quota_info, ctx_info
+    );
     let _ = io::stdout().flush();
 }
