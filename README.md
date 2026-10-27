@@ -36,6 +36,51 @@ Measured average latency over 20 consecutive execution ticks on Linux x86_64:
 
 Rust is 25.7x faster than the Python runtime per UI render tick.
 
+## Prerequisites
+
+A patched Nerd Font is required to display status icons (shield, Git branch, and SSH indicators). JetBrains Mono Nerd Font is recommended.
+
+### Installing a Nerd Font
+
+#### macOS
+```bash
+brew install --cask font-jetbrains-mono-nerd-font
+```
+
+#### Linux (Arch Linux)
+```bash
+sudo pacman -S ttf-jetbrains-mono-nerd
+```
+
+#### Linux (Ubuntu / Debian / Fedora)
+```bash
+mkdir -p ~/.local/share/fonts
+curl -fLo ~/.local/share/fonts/JetBrainsMono.tar.xz https://github.com/ryanoasis/nerd-fonts/releases/latest/download/JetBrainsMono.tar.xz
+tar -xf ~/.local/share/fonts/JetBrainsMono.tar.xz -C ~/.local/share/fonts/
+fc-cache -fv
+```
+
+#### Windows (PowerShell / Windows Terminal)
+```powershell
+winget install DEVCOM.JetBrainsMonoNerdFont
+```
+
+#### Android Termux
+```bash
+mkdir -p ~/.termux
+curl -fLo ~/.termux/font.ttf https://github.com/ryanoasis/nerd-fonts/raw/master/patched-fonts/JetBrainsMono/Ligatures/Regular/JetBrainsMonoNerdFont-Regular.ttf
+termux-reload-settings
+```
+
+### Terminal Font Activation
+
+After installing, set your terminal emulator font family to `JetBrainsMono Nerd Font`:
+- Windows Terminal: Settings > Defaults > Appearance > Font face > `JetBrainsMono Nerd Font`
+- WezTerm: Set `font = wezterm.font("JetBrainsMono Nerd Font")` in `wezterm.lua`
+- Alacritty: Set `font.normal.family = "JetBrainsMono Nerd Font"` in `alacritty.toml`
+- Kitty: Set `font_family JetBrainsMono Nerd Font` in `kitty.conf`
+- iTerm2: Preferences > Profiles > Text > Font > `JetBrainsMono Nerd Font`
+
 ## Installation
 
 ### One-Line Quickstart
