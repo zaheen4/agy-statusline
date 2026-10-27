@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$Repo = "eyepatch/agy-statusline"
+$Repo = "zaheen4/agy-statusline"
 $TargetDir = Join-Path $HOME ".local\bin"
 $FallbackDir = Join-Path $HOME ".config\agy-statusline"
 $SettingsDir = Join-Path $HOME ".gemini\antigravity-cli"

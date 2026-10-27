@@ -43,7 +43,7 @@ Rust is 25.7x faster than the Python runtime per UI render tick.
 #### Linux, macOS, WSL, Android Termux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/eyepatch/agy-statusline/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.sh | bash
 ```
 
 The installer detects your operating system and architecture, installs the native binary into `~/.local/bin/agy-statusline`, and automatically updates `~/.gemini/antigravity-cli/settings.json`. If precompiled binaries cannot be fetched or Cargo is not present, it automatically falls back to `src/statusline.py`.
@@ -51,7 +51,7 @@ The installer detects your operating system and architecture, installs the nativ
 #### Windows (PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/eyepatch/agy-statusline/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.ps1 | iex
 ```
 
 ### Manual Configuration

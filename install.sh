@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="eyepatch/agy-statusline"
+REPO="zaheen4/agy-statusline"
 TARGET_DIR="${TARGET_DIR:-${HOME}/.local/bin}"
 FALLBACK_DIR="${HOME}/.config/agy-statusline"
 SETTINGS_DIR="${HOME}/.gemini/antigravity-cli"
