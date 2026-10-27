@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  test-all:
+    name: Validate (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Rust binary
+        run: cargo build --release
+
+      - name: Validate Rust engine with mock payload (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
+
+      - name: Validate Rust engine with mock payload (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline.exe
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate Python engine
+        run: |
+          python -m py_compile src/statusline.py
+          echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":100}' | python src/statusline.py
+
+      - name: Validate Bash engine and installer (Ubuntu)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          bash -n src/statusline.sh
+          bash -n install.sh
+          echo '{"model":"Gemini 2.5 Pro (Extra High)","cycle_mode":"auto","terminal_width":100}' | ./src/statusline.sh
