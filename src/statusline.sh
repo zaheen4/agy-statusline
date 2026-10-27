@@ -10,6 +10,36 @@ ctx_pct=$(jq -r '.context_window.used_percentage // (.context.used_tokens / (.co
 pct_int=$(jq -r '.context_window.used_percentage // (.context.used_tokens / (.context.max_tokens // 1) * 100) // 0' <<< "$input" 2>/dev/null | awk '{printf "%d", $1}')
 branch=$(jq -r '.vcs.branch // empty' <<< "$input" 2>/dev/null)
 dirty=$(jq -r '.vcs.dirty // false' <<< "$input" 2>/dev/null)
+
+# Fallback: if .vcs.branch is omitted by Antigravity CLI, read directly from .git/HEAD
+if [ -z "$branch" ]; then
+  cwd=$(jq -r '.cwd // .workspace.current_dir // "."' <<< "$input" 2>/dev/null)
+  [ -z "$cwd" ] && cwd="."
+
+  git_dir="$cwd/.git"
+  if [ -f "$git_dir" ]; then
+    git_dir_path=$(sed 's/^gitdir: //' "$git_dir" 2>/dev/null)
+    [[ "$git_dir_path" = /* ]] && git_dir="$git_dir_path" || git_dir="$cwd/$git_dir_path"
+  fi
+
+  if [ -d "$git_dir" ] && [ -f "$git_dir/HEAD" ]; then
+    head_content=$(< "$git_dir/HEAD")
+    if [[ "$head_content" == ref:\ refs/heads/* ]]; then
+      branch="${head_content#ref: refs/heads/}"
+    else
+      branch="${head_content:0:7}"
+    fi
+  else
+    branch=$(git -C "$cwd" rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  fi
+
+  if [ -n "$branch" ] && [ "$dirty" = "false" ]; then
+    if ! git -C "$cwd" diff --quiet 2>/dev/null; then
+      dirty="true"
+    fi
+  fi
+fi
+
 sandbox=$(jq -r '.sandbox.enabled // false' <<< "$input" 2>/dev/null)
 
 # Terminal column width detection directly from native payload

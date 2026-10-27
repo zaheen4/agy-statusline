@@ -154,9 +154,56 @@ def main():
     # 5. Git Metadata
     vcs = payload.get("vcs", {})
     branch = vcs.get("branch", "")
+    dirty_flag = ""
+
+    if not branch:
+        cwd = payload.get("cwd") or payload.get("workspace", {}).get("current_dir") or "."
+        git_dir = os.path.join(cwd, ".git")
+        if os.path.isfile(git_dir):
+            try:
+                with open(git_dir, "r") as gf:
+                    line = gf.read().strip()
+                    if line.startswith("gitdir:"):
+                        p = line[7:].strip()
+                        git_dir = p if os.path.isabs(p) else os.path.join(cwd, p)
+            except Exception:
+                pass
+
+        head_file = os.path.join(git_dir, "HEAD")
+        if os.path.isfile(head_file):
+            try:
+                with open(head_file, "r") as hf:
+                    ref = hf.read().strip()
+                    if ref.startswith("ref: refs/heads/"):
+                        branch = ref[16:]
+                    else:
+                        branch = ref[:7]
+            except Exception:
+                pass
+        else:
+            try:
+                import subprocess
+                branch = subprocess.check_output(
+                    ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+                    stderr=subprocess.DEVNULL,
+                    timeout=0.2
+                ).decode().strip()
+            except Exception:
+                pass
+
+        if branch:
+            try:
+                import subprocess
+                if subprocess.run(["git", "-C", cwd, "diff", "--quiet"], stderr=subprocess.DEVNULL, timeout=0.2).returncode != 0:
+                    dirty_flag = "\033[33m*\033[0m"
+            except Exception:
+                pass
+    else:
+        if vcs.get("dirty", False):
+            dirty_flag = "\033[33m*\033[0m"
+
     git_segment = ""
     if branch:
-        dirty_flag = "\033[33m*\033[0m" if vcs.get("dirty", False) else ""
         git_segment = f" \033[90m│\033[0m \033[35m󰘬 {branch}{dirty_flag}"
 
     # 6. Quota

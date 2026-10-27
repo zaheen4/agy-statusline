@@ -412,6 +412,62 @@ fn build_context_gauge(pct: f64, cols: usize) -> String {
     }
 }
 
+fn detect_git_branch(payload: &JsonValue) -> (String, bool) {
+    if let Some(vcs) = payload.get("vcs") {
+        if let Some(branch) = vcs.get("branch").and_then(|b| b.as_str()) {
+            if !branch.is_empty() {
+                let dirty = vcs.get("dirty").and_then(|d| d.as_bool()).unwrap_or(false);
+                return (branch.to_string(), dirty);
+            }
+        }
+    }
+
+    // Fallback: inspect .git/HEAD directly without heavy subshells
+    let cwd = payload
+        .get("cwd")
+        .or_else(|| payload.get("workspace").and_then(|w| w.get("current_dir")))
+        .and_then(|s| s.as_str())
+        .unwrap_or(".");
+
+    let mut git_dir = std::path::PathBuf::from(cwd).join(".git");
+    if git_dir.is_file() {
+        if let Ok(content) = fs::read_to_string(&git_dir) {
+            let line = content.trim();
+            if let Some(rest) = line.strip_prefix("gitdir:") {
+                let p = rest.trim();
+                git_dir = if std::path::Path::new(p).is_absolute() {
+                    std::path::PathBuf::from(p)
+                } else {
+                    std::path::PathBuf::from(cwd).join(p)
+                };
+            }
+        }
+    }
+
+    let head_file = git_dir.join("HEAD");
+    if let Ok(content) = fs::read_to_string(head_file) {
+        let line = content.trim();
+        let branch = if let Some(rest) = line.strip_prefix("ref: refs/heads/") {
+            rest.to_string()
+        } else if line.len() >= 7 {
+            line[..7].to_string()
+        } else {
+            line.to_string()
+        };
+        let dirty = std::process::Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .arg("diff")
+            .arg("--quiet")
+            .status()
+            .map(|s| !s.success())
+            .unwrap_or(false);
+        return (branch, dirty);
+    }
+
+    (String::new(), false)
+}
+
 fn main() {
     let mut raw_stdin = String::new();
     let _ = io::stdin().read_to_string(&mut raw_stdin);
@@ -467,19 +523,12 @@ fn main() {
         ""
     };
 
-    // 5. VCS status strictly from JSON payload
+    // 5. VCS status
     let mut git_info = String::new();
-    if let Some(vcs) = payload.get("vcs") {
-        if let Some(branch) = vcs.get("branch").and_then(|b| b.as_str()) {
-            if !branch.is_empty() {
-                let dirty = if vcs.get("dirty").and_then(|d| d.as_bool()).unwrap_or(false) {
-                    "\x1b[33m*\x1b[0m"
-                } else {
-                    ""
-                };
-                git_info = format!(" \x1b[90m│\x1b[0m \x1b[35m\u{F062C} {}{}", branch, dirty);
-            }
-        }
+    let (branch, dirty) = detect_git_branch(&payload);
+    if !branch.is_empty() {
+        let dirty_flag = if dirty { "\x1b[33m*\x1b[0m" } else { "" };
+        git_info = format!(" \x1b[90m│\x1b[0m \x1b[35m\u{F062C} {}{}", branch, dirty_flag);
     }
 
     // 6. Quota
