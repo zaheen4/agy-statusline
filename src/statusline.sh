@@ -125,7 +125,7 @@ fi
 git_info=""
 if [ -n "$branch" ]; then
   [ "$dirty" = "true" ] && git_status=$'\033[33m*\033[0m' || git_status=""
-  git_info=$' \033[90m│\033[0m \033[35m '"$branch$git_status"
+  git_info=$' \033[90m│\033[0m \033[35m󰘬 '"$branch$git_status"
 fi
 
 # Render formatted status line

@@ -477,7 +477,7 @@ fn main() {
                 } else {
                     ""
                 };
-                git_info = format!(" \x1b[90m│\x1b[0m \x1b[35m {}{}", branch, dirty);
+                git_info = format!(" \x1b[90m│\x1b[0m \x1b[35m\u{F062C} {}{}", branch, dirty);
             }
         }
     }

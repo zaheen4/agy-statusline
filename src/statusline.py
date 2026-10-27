@@ -157,7 +157,7 @@ def main():
     git_segment = ""
     if branch:
         dirty_flag = "\033[33m*\033[0m" if vcs.get("dirty", False) else ""
-        git_segment = f" \033[90m│\033[0m \033[35m {branch}{dirty_flag}"
+        git_segment = f" \033[90m│\033[0m \033[35m󰘬 {branch}{dirty_flag}"
 
     # 6. Quota
     quota_segment = extract_quota(payload, raw_model)
