@@ -7,13 +7,23 @@ Engineered for modern terminal emulators, low-latency SSH sessions, and Android 
 ## Features
 
 - Sub-millisecond Execution: Native Rust binary executes in ~1.5ms, eliminating the 45ms Python interpreter startup latency on every UI render tick.
-- Zero-Subprocess VCS Status: Reads Git metadata (`.vcs.branch` and `.vcs.dirty`) directly from the Antigravity session payload on stdin.
-- Reasoning Tag Normalization: Strips vendor noise (`Gemini`, `Claude`, `Google`) and converts reasoning tiers into compact markers (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
+- Zero-Subprocess Telemetry Pipeline: Ingests Git metadata (`.vcs.branch`, `.vcs.dirty`), terminal column count (`.terminal_width`), and quota fractions (`.quota`) directly from Antigravity's stdin JSON stream without running subshells.
+- Inverted 3-Tier Responsive Layout: Prioritizes quota availability over context consumption so quota limits remain visible on narrow mobile SSH and Termux screens.
+- Native Quota Routing: Ingests model-specific quota buckets (`gemini-5h` and `gemini-weekly` for Gemini; `3p-5h` and `3p-weekly` for Claude/GPT) with fallback to `/tmp/agy_quota_cache.json`.
+- Dynamic Capacity Health Colors: Quota percentages dynamically render green (>= 40%), yellow (20% to 39%), or red (< 20%).
+- Reasoning Tag Normalization: Strips vendor noise (`Gemini`, `Claude`, `Google`) and converts reasoning tiers into compact bracketed markers (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
 - High-Contrast Mode Badges: Color-coded ANSI badges mapping agent cycle modes (`AUTO`, `PLAN`, `EDITS`, `DEFAULT`).
-- Responsive Breakpoint: Automatically omits quota and context gauges when terminal width falls below 85 columns.
-- Asynchronous Quota Monitoring: Reads cached 5-hour and weekly quota fractions from background refresh tasks.
-- Context Meter: 5-step block gauge (`[█░░░░] 25.4%`) tracking session context consumption.
-- Dual-Engine Support: High-performance native Rust binary with zero external crates, paired with a portable Python 3 reference engine.
+- Multi-Engine Architecture: High-performance native Rust binary with zero external crates, paired with a canonical Bash script (`src/statusline.sh`) and portable Python 3 reference engine (`src/statusline.py`).
+
+## 3-Tier Responsive Layout
+
+To prevent statusline wrapping on narrow viewports, layout priority is inverted to protect quota metrics:
+
+| Tier | Viewport Width | Displayed Telemetry | Context Metric Format |
+| :--- | :--- | :--- | :--- |
+| Tier 1 | `>= 85` columns | Model, Mode, Git, Quota, Context | Full 5-block gauge (`[██░░░] 45.2%`) |
+| Tier 2 | `70` to `84` cols | Model, Mode, Git, Quota, Context | Compact percentage only (`Ctx: 45%`) |
+| Tier 3 | `< 70` columns | Model, Mode, Git, Quota | Context omitted to preserve single-line quota |
 
 ## Performance Benchmark
 
@@ -24,7 +34,7 @@ Measured average latency over 20 consecutive execution ticks on Linux x86_64:
 | Native Rust Binary | 1.75 ms | Sub-millisecond | No (CI prebuilts provided) |
 | Python 3 Script | 44.95 ms | ~40 ms interpreter startup | Python 3 |
 
-Rust is 25.7x faster than the Python runtime per UI tick.
+Rust is 25.7x faster than the Python runtime per UI render tick.
 
 ## Installation
 
@@ -36,7 +46,7 @@ Rust is 25.7x faster than the Python runtime per UI tick.
 curl -fsSL https://raw.githubusercontent.com/eyepatch/agy-statusline/main/install.sh | bash
 ```
 
-The installer detects your operating system and architecture, downloads the precompiled static binary into `~/.local/bin/agy-statusline`, and automatically configures your Antigravity settings. If precompiled binaries cannot be fetched or Cargo is not present, it automatically falls back to `src/statusline.py`.
+The installer detects your operating system and architecture, installs the native binary into `~/.local/bin/agy-statusline`, and automatically updates `~/.gemini/antigravity-cli/settings.json`. If precompiled binaries cannot be fetched or Cargo is not present, it automatically falls back to `src/statusline.py`.
 
 #### Windows (PowerShell)
 
@@ -55,6 +65,18 @@ Using the compiled native binary:
   "statusLine": {
     "type": "command",
     "command": "/home/your-user/.local/bin/agy-statusline",
+    "enabled": true
+  }
+}
+```
+
+Using the canonical Bash script:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "/home/your-user/.config/agy/statusline.sh",
     "enabled": true
   }
 }
@@ -82,24 +104,30 @@ Preconfigured themes are located in the `themes/` directory:
 
 ## Testing & Verification
 
-Simulate incoming Antigravity session payloads via stdin:
+Simulate incoming Antigravity session payloads via stdin across each responsive tier:
 
-Standard execution state:
+Tier 1 (Width >= 85 cols: full 5-block gauge):
 
 ```bash
-echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","vcs":{"branch":"main","dirty":true},"context":{"used_tokens":25400,"max_tokens":100000}}' | COLUMNS=120 ./target/release/agy-statusline
+echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
 ```
 
-Narrow terminal breakpoint (< 85 columns):
+Tier 2 (70 <= Width < 85 cols: compact numeric context):
 
 ```bash
-echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","vcs":{"branch":"main","dirty":false},"context":{"used_tokens":25400,"max_tokens":100000}}' | COLUMNS=70 ./target/release/agy-statusline
+echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":75,"vcs":{"branch":"main","dirty":false},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
+```
+
+Tier 3 (Width < 70 cols: context omitted, quota preserved):
+
+```bash
+echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":60,"vcs":{"branch":"feature/auth","dirty":false},"quota":{"3p-5h":{"remaining_fraction":1.0},"3p-weekly":{"remaining_fraction":1.0}}}' | ./target/release/agy-statusline
 ```
 
 Python fallback verification:
 
 ```bash
-echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","vcs":{"branch":"feature/auth","dirty":false},"context":{"used_tokens":0,"max_tokens":200000}}' | COLUMNS=120 python3 src/statusline.py
+echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":100,"vcs":{"branch":"feature/auth","dirty":false},"context_window":{"used_percentage":15.0}}' | python3 src/statusline.py
 ```
 
 ## Troubleshooting
