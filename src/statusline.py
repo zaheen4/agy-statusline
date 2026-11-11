@@ -83,11 +83,52 @@ def extract_quota(payload, model_str):
             if frac is not None:
                 wk_pct = int(round(frac * 100))
 
-    # 2. Secondary fallback to /tmp/agy_quota_cache.json
+    # 2. Secondary fallback with lazy on-demand background refresh
     if h5_pct is None or wk_pct is None:
         cache_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "agy_quota_cache.json")
         if not os.path.exists(cache_path):
             cache_path = os.path.join(os.environ.get("TEMP", "/tmp"), "agy_quota_cache.json")
+
+        now = time.time()
+        mtime = 0.0
+        if os.path.exists(cache_path):
+            try:
+                mtime = os.path.getmtime(cache_path)
+            except OSError:
+                pass
+
+        lock_path = os.path.join(os.environ.get("TMPDIR", "/tmp"), "agy_quota_fetch.lock")
+        if now - mtime >= 1800:
+            lock_age = 9999.0
+            if os.path.exists(lock_path):
+                try:
+                    lock_age = now - os.path.getmtime(lock_path)
+                except OSError:
+                    pass
+            if lock_age >= 300:
+                fetcher = None
+                for cand in [
+                    os.path.expanduser("~/.config/agy-statusline/fetch-quota.sh"),
+                    os.path.expanduser("~/.config/agy/fetch-quota-cache.sh"),
+                    os.path.expanduser("~/.local/bin/agy-fetch-quota"),
+                ]:
+                    if os.path.isfile(cand) and os.access(cand, os.X_OK):
+                        fetcher = cand
+                        break
+                if fetcher:
+                    try:
+                        with open(lock_path, "w") as lf:
+                            lf.write(str(int(now)))
+                        import subprocess
+                        subprocess.Popen(
+                            [fetcher],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                    except Exception:
+                        pass
+
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, "r") as f:

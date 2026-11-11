@@ -139,19 +139,18 @@ Using the Python reference engine:
 }
 ```
 
-## Background Quota Cache (Systemd)
+## Quota Telemetry & Lazy Background Caching
 
-When Antigravity runs outside active interactive streams, quota availability can be pre-cached to `/tmp/agy_quota_cache.json` using the provided offline-hardened background fetcher.
+All `agy-statusline` engines (Rust, Python, and Bash) ingest model quota fractions directly from Antigravity's in-band `stdin` JSON stream during active turns.
 
-### Features
+When in-band `.quota` telemetry is omitted, engines fall back to `/tmp/agy_quota_cache.json` using **Lazy On-Demand Background Refresh**:
+- **Zero Idle Drain:** When Antigravity is closed or inactive, background execution frequency is strictly 0, saving CPU cycles and laptop battery.
+- **Asynchronous Spawn:** When Antigravity is active and the cache is older than 30 minutes, a non-blocking background fetcher (`fetch-quota.sh`) is spawned detached. The current prompt render never blocks or lags.
+- **Offline Safe & Browser Suppressed:** Pre-flight connectivity checks exit quietly when disconnected without spawning interactive OAuth browser windows.
 
-- Offline Safe: Performs pre-flight connectivity checks against Google APIs before invoking `agy`. Skips execution quietly when disconnected without failing the systemd unit.
-- Browser Suppression: Forces `BROWSER=/bin/true`, unsets graphical display variables, and shims `xdg-open` to prevent intrusive OAuth browser pop-ups during background token refresh failures.
-- Atomic Cache Updates: Validates JSON payloads and commits only successful API responses.
+### Optional Fixed-Interval Poller (Systemd)
 
-### Installation
-
-Copy the fetcher script and systemd user units:
+For workflows requiring scheduled 10-minute cache updates even when the CLI is closed, systemd user units are provided in `systemd/`:
 
 ```bash
 mkdir -p ~/.config/systemd/user ~/.config/agy-statusline

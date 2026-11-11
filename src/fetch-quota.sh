@@ -23,7 +23,7 @@ export CI=1
 
 # Shadow GUI browser openers with a no-op shim
 SHIM_DIR=$(mktemp -d "${TMPDIR:-/tmp}/agy-nobrowser.XXXXXX" 2>/dev/null || mktemp -d)
-trap 'rm -rf "$SHIM_DIR"' EXIT
+trap 'rm -rf "$SHIM_DIR" /tmp/agy_quota_fetch.lock' EXIT
 cat << 'EOF' > "$SHIM_DIR/xdg-open"
 #!/bin/sh
 exit 0

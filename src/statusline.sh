@@ -97,13 +97,42 @@ fi
 five_h_pct=$(jq -r --arg k "$key_5h" '.quota[$k].remaining_fraction // empty' <<< "$input" 2>/dev/null | awk '{printf "%d", ($1 * 100) + 0.5}')
 weekly_pct=$(jq -r --arg k "$key_wk" '.quota[$k].remaining_fraction // empty' <<< "$input" 2>/dev/null | awk '{printf "%d", ($1 * 100) + 0.5}')
 
-# 2. Secondary fallback to /tmp/agy_quota_cache.json if payload omitted quota
+# 2. Secondary fallback with lazy on-demand background refresh
 CACHE_FILE="${TMPDIR:-/tmp}/agy_quota_cache.json"
 [ ! -f "$CACHE_FILE" ] && CACHE_FILE="${TEMP:-/tmp}/agy_quota_cache.json"
 
-if [ -z "$five_h_pct" ] && [ -f "$CACHE_FILE" ]; then
-  five_h_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="5h") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
-  weekly_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="weekly") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
+if [ -z "$five_h_pct" ] || [ -z "$weekly_pct" ]; then
+  # Trigger non-blocking detached refresh only if cache is stale (>30 mins)
+  now=$(date +%s 2>/dev/null || echo 0)
+  mtime=0
+  [ -f "$CACHE_FILE" ] && mtime=$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)
+  lock_file="${TMPDIR:-/tmp}/agy_quota_fetch.lock"
+
+  if (( now - mtime >= 1800 )); then
+    lock_age=9999
+    [ -f "$lock_file" ] && lock_age=$(( now - $(stat -c %Y "$lock_file" 2>/dev/null || stat -f %m "$lock_file" 2>/dev/null || echo 0) ))
+    if (( lock_age >= 300 )); then
+      fetcher=""
+      for candidate in \
+        "$HOME/.config/agy-statusline/fetch-quota.sh" \
+        "$HOME/.config/agy/fetch-quota-cache.sh" \
+        "$HOME/.local/bin/agy-fetch-quota"; do
+        if [ -x "$candidate" ]; then
+          fetcher="$candidate"
+          break
+        fi
+      done
+      if [ -n "$fetcher" ]; then
+        touch "$lock_file" 2>/dev/null || true
+        ( "$fetcher" >/dev/null 2>&1 & )
+      fi
+    fi
+  fi
+
+  if [ -f "$CACHE_FILE" ]; then
+    [ -z "$five_h_pct" ] && five_h_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="5h") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
+    [ -z "$weekly_pct" ] && weekly_pct=$(jq -r --arg g "$target_group" '(.command.data.groups[]? | select(.name==$g) | .buckets[]? | select(.window=="weekly") | (.remaining_fraction * 100 | round)) // empty' "$CACHE_FILE" 2>/dev/null)
+  fi
 fi
 
 quota_info=""

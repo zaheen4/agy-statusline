@@ -108,8 +108,6 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
         fi
         sed -i "s|%h/.config/agy-statusline|${FALLBACK_DIR}|g" "${SYSTEMD_USER_DIR}/agy-quota-cache.service" 2>/dev/null || true
         systemctl --user daemon-reload 2>/dev/null || true
-        systemctl --user enable --now agy-quota-cache.timer 2>/dev/null || true
-        echo "==> Configured offline-safe background quota cache timer (systemd user unit)."
     fi
 fi
 

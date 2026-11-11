@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone)]
 enum JsonValue {
@@ -330,6 +331,54 @@ fn format_quota_colored(pct: Option<i64>) -> String {
     }
 }
 
+fn trigger_lazy_refresh(cache_path: &str) {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let mtime = fs::metadata(cache_path)
+        .and_then(|m| m.modified())
+        .and_then(|t| t.duration_since(UNIX_EPOCH).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)))
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // 1800s = 30 minutes TTL
+    if now.saturating_sub(mtime) >= 1800 {
+        let lock_path = env::var("TMPDIR")
+            .map(|d| format!("{}/agy_quota_fetch.lock", d))
+            .unwrap_or_else(|_| "/tmp/agy_quota_fetch.lock".to_string());
+
+        if let Ok(meta) = fs::metadata(&lock_path) {
+            if let Ok(mod_time) = meta.modified() {
+                if let Ok(d) = mod_time.duration_since(UNIX_EPOCH) {
+                    if now.saturating_sub(d.as_secs()) < 300 {
+                        return;
+                    }
+                }
+            }
+        }
+        let _ = fs::write(&lock_path, now.to_string());
+
+        let home = env::var("HOME").unwrap_or_default();
+        let candidates = [
+            format!("{}/.config/agy-statusline/fetch-quota.sh", home),
+            format!("{}/.config/agy/fetch-quota-cache.sh", home),
+            format!("{}/.local/bin/agy-fetch-quota", home),
+        ];
+
+        for cand in &candidates {
+            if std::path::Path::new(cand).is_file() {
+                let _ = std::process::Command::new(cand)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .spawn();
+                break;
+            }
+        }
+    }
+}
+
 fn extract_quota(payload: &JsonValue, model: &str) -> String {
     let lower = model.to_lowercase();
     let is_3p = lower.contains("claude") || lower.contains("gpt");
@@ -354,7 +403,7 @@ fn extract_quota(payload: &JsonValue, model: &str) -> String {
         }
     }
 
-    // 2. Secondary fallback to /tmp/agy_quota_cache.json
+    // 2. Secondary fallback with lazy on-demand background refresh
     if h5_pct.is_none() || wk_pct.is_none() {
         let mut cache_path = env::var("TMPDIR")
             .map(|d| format!("{}/agy_quota_cache.json", d))
@@ -364,6 +413,7 @@ fn extract_quota(payload: &JsonValue, model: &str) -> String {
                 cache_path = format!("{}/agy_quota_cache.json", temp);
             }
         }
+        trigger_lazy_refresh(&cache_path);
         if let Ok(content) = fs::read_to_string(&cache_path) {
             if let Some(json) = parse_json(&content) {
                 if let Some(groups) = json.get("command").and_then(|c| c.get("data")).and_then(|d| d.get("groups")).and_then(|g| g.as_array()) {
