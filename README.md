@@ -139,6 +139,32 @@ Using the Python reference engine:
 }
 ```
 
+## Background Quota Cache (Systemd)
+
+When Antigravity runs outside active interactive streams, quota availability can be pre-cached to `/tmp/agy_quota_cache.json` using the provided offline-hardened background fetcher.
+
+### Features
+
+- Offline Safe: Performs pre-flight connectivity checks against Google APIs before invoking `agy`. Skips execution quietly when disconnected without failing the systemd unit.
+- Browser Suppression: Forces `BROWSER=/bin/true`, unsets graphical display variables, and shims `xdg-open` to prevent intrusive OAuth browser pop-ups during background token refresh failures.
+- Atomic Cache Updates: Validates JSON payloads and commits only successful API responses.
+
+### Installation
+
+Copy the fetcher script and systemd user units:
+
+```bash
+mkdir -p ~/.config/systemd/user ~/.config/agy-statusline
+cp src/fetch-quota.sh ~/.config/agy-statusline/fetch-quota.sh
+chmod +x ~/.config/agy-statusline/fetch-quota.sh
+
+cp systemd/agy-quota-cache.service ~/.config/systemd/user/
+cp systemd/agy-quota-cache.timer ~/.config/systemd/user/
+
+systemctl --user daemon-reload
+systemctl --user enable --now agy-quota-cache.timer
+```
+
 ## Palettes and Themes
 
 Preconfigured themes are located in the `themes/` directory:

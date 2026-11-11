@@ -88,7 +88,32 @@ if [ -z "$INSTALLED_CMD" ]; then
     INSTALLED_CMD="python3 ${FALLBACK_DIR}/statusline.py"
 fi
 
-# 5. Safely patch settings.json
+# 5. Install quota cache fetcher and systemd units on Linux
+if [ -f "src/fetch-quota.sh" ]; then
+    cp "src/fetch-quota.sh" "${FALLBACK_DIR}/fetch-quota.sh"
+else
+    curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/src/fetch-quota.sh" -o "${FALLBACK_DIR}/fetch-quota.sh" 2>/dev/null || true
+fi
+chmod +x "${FALLBACK_DIR}/fetch-quota.sh" 2>/dev/null || true
+
+if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
+    SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
+    if mkdir -p "$SYSTEMD_USER_DIR" 2>/dev/null; then
+        if [ -f "systemd/agy-quota-cache.service" ]; then
+            cp "systemd/agy-quota-cache.service" "${SYSTEMD_USER_DIR}/agy-quota-cache.service"
+            cp "systemd/agy-quota-cache.timer" "${SYSTEMD_USER_DIR}/agy-quota-cache.timer"
+        else
+            curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/systemd/agy-quota-cache.service" -o "${SYSTEMD_USER_DIR}/agy-quota-cache.service" 2>/dev/null || true
+            curl -fsSL "https://raw.githubusercontent.com/${REPO}/main/systemd/agy-quota-cache.timer" -o "${SYSTEMD_USER_DIR}/agy-quota-cache.timer" 2>/dev/null || true
+        fi
+        sed -i "s|%h/.config/agy-statusline|${FALLBACK_DIR}|g" "${SYSTEMD_USER_DIR}/agy-quota-cache.service" 2>/dev/null || true
+        systemctl --user daemon-reload 2>/dev/null || true
+        systemctl --user enable --now agy-quota-cache.timer 2>/dev/null || true
+        echo "==> Configured offline-safe background quota cache timer (systemd user unit)."
+    fi
+fi
+
+# 6. Safely patch settings.json
 python3 - <<EOF
 import json, os
 

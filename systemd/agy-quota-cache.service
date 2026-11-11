@@ -1,0 +1,12 @@
+[Unit]
+Description=Antigravity CLI Quota Cache Fetcher
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment="BROWSER=/bin/true"
+Environment="DISPLAY="
+Environment="WAYLAND_DISPLAY="
+TimeoutStartSec=30s
+ExecStart=%h/.config/agy-statusline/fetch-quota.sh
