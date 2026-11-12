@@ -4,6 +4,8 @@ import json
 import os
 import shutil
 import re
+import time
+import subprocess
 
 def get_terminal_width(payload):
     # 1. Native payload width
