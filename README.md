@@ -1,44 +1,124 @@
 # agy-statusline
 
-A high-performance, single-line telemetry status bar engine for the Google Antigravity CLI (`agy`).
+A fast, clean status bar for the Google Antigravity CLI (`agy`).
 
-Engineered for modern terminal emulators, low-latency SSH sessions, and Android Termux environments.
+```text
+ AUTO  │ 3.8 Flash [H] │ 󰘬 main* │ 5h: 87% (Wk: 25%) │ Ctx: [█░░░░] 25.4%
+ ─────   ─────────────   ───────   ─────────────────   ──────────────────
+ Mode    Model & Think   Branch    Remaining Quota     Context Window
+```
 
-## Features
+Engineered for terminal emulators, remote SSH sessions, and Android Termux.
 
-- Sub-millisecond Execution: Native Rust binary executes in ~1.5ms, eliminating the 45ms Python interpreter startup latency on every UI render tick.
-- Zero-Subprocess Telemetry Pipeline: Ingests Git metadata (`.vcs.branch`, `.vcs.dirty`), terminal column count (`.terminal_width`), and quota fractions (`.quota`) directly from Antigravity's stdin JSON stream without running subshells.
-- Inverted 3-Tier Responsive Layout: Prioritizes quota availability over context consumption so quota limits remain visible on narrow mobile SSH and Termux screens.
-- Native Quota Routing: Ingests model-specific quota buckets (`gemini-5h` and `gemini-weekly` for Gemini; `3p-5h` and `3p-weekly` for Claude/GPT) with fallback to `/tmp/agy_quota_cache.json`.
-- Dynamic Capacity Health Colors: Quota percentages dynamically render green (>= 40%), yellow (20% to 39%), or red (< 20%).
-- Reasoning Tag Normalization: Strips vendor noise (`Gemini`, `Claude`, `Google`) and converts reasoning tiers into compact bracketed markers (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
-- High-Contrast Mode Badges: Color-coded ANSI badges mapping agent cycle modes (`AUTO`, `PLAN`, `EDITS`, `DEFAULT`).
-- Multi-Engine Architecture: High-performance native Rust binary with zero external crates, paired with a canonical Bash script (`src/statusline.sh`) and portable Python 3 reference engine (`src/statusline.py`).
+## Highlights
 
-## 3-Tier Responsive Layout
+- **Instant Execution:** Built in native Rust (<2ms execution time). Eliminates the ~45ms Python interpreter startup lag on every screen update.
+- **Direct Updates:** Reads Git branch, terminal width, and quota limits directly from Antigravity's session stream without spawning slow subshells.
+- **Smart Screen Sizing:** Automatically fits narrow screens and split viewports by keeping your quota visible and shortening or hiding the context bar.
+- **Model Quota Limits:** Shows remaining 5-hour and weekly limits for Gemini, Claude, and GPT models with color-coded warnings (green above 40%, yellow 20–39%, red below 20%).
+- **Clean Model Names:** Shortens vendor names (e.g., `Flash 3.8`) and thinking tiers into compact badges like `[H]` or `[MAX]`.
+- **Battery-Friendly Cache:** When offline or outside active sessions, quota refreshes quietly in the background without draining laptop battery or opening unwanted OAuth browser pop-ups.
+- **Portable:** Single precompiled binary, paired with standalone Bash (`src/statusline.sh`) and Python 3 (`src/statusline.py`) reference engines.
 
-To prevent statusline wrapping on narrow viewports, layout priority is inverted to protect quota metrics:
+## Quickstart
 
-| Tier | Viewport Width | Displayed Telemetry | Context Metric Format |
-| :--- | :--- | :--- | :--- |
-| Tier 1 | `>= 85` columns | Model, Mode, Git, Quota, Context | Full 5-block gauge (`[██░░░] 45.2%`) |
-| Tier 2 | `70` to `84` cols | Model, Mode, Git, Quota, Context | Compact percentage only (`Ctx: 45%`) |
-| Tier 3 | `< 70` columns | Model, Mode, Git, Quota | Context omitted to preserve single-line quota |
+### Linux, macOS, WSL, Android Termux
 
-## Performance Benchmark
+```bash
+curl -fsSL https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.sh | bash
+```
 
-Measured average latency over 20 consecutive execution ticks on Linux x86_64:
+The installer detects your operating system and architecture, installs the native binary into `~/.local/bin/agy-statusline`, and enables it in Antigravity. If Cargo is not installed or precompiled binaries are unavailable, it automatically falls back to the Python reference engine.
 
-| Engine | Latency | Startup Overhead | Local Toolchain Required |
-| :--- | :--- | :--- | :--- |
-| Native Rust Binary | 1.75 ms | Sub-millisecond | No (CI prebuilts provided) |
-| Python 3 Script | 44.95 ms | ~40 ms interpreter startup | Python 3 |
+### Windows (PowerShell)
 
-Rust is 25.7x faster than the Python runtime per UI render tick.
+```powershell
+irm https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.ps1 | iex
+```
+
+## Setup Inside Antigravity
+
+You can manage your statusline directly inside Antigravity CLI without editing configuration files by hand:
+
+- **Set statusline command:**
+  ```text
+  /statusline ~/.local/bin/agy-statusline
+  ```
+- **Toggle on or off:**
+  ```text
+  /statusline off
+  /statusline on
+  ```
+- **Revert to default:**
+  ```text
+  /statusline delete
+  ```
+
+### Manual Configuration
+
+Alternatively, configure the statusline manually by adding this block to `~/.gemini/antigravity-cli/settings.json` (or `%USERPROFILE%\.gemini\antigravity-cli\settings.json` on Windows):
+
+Using the compiled native binary:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "/home/your-user/.local/bin/agy-statusline",
+    "enabled": true
+  }
+}
+```
+
+Using the Bash script:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "/home/your-user/.config/agy/statusline.sh",
+    "enabled": true
+  }
+}
+```
+
+Using the Python script:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "python3 /path/to/agy-statusline/src/statusline.py",
+    "enabled": true
+  }
+}
+```
+
+## What Each Segment Shows
+
+- **Mode Badge:** Displays the active agent mode (`AUTO`, `PLAN`, `EDITS`, `DEFAULT`) with high-contrast ANSI colors.
+- **Model & Thinking Level:** Displays a shortened model name and bracketed reasoning effort (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
+- **Security & Remote Badges:** Displays `` when the Antigravity sandbox is active, and `󰢹 SSH` during remote terminal sessions.
+- **Git Branch:** Displays the current Git branch and an uncommitted changes marker (`*`). Reads directly from `.git/HEAD` with sub-millisecond fallback when Antigravity omits VCS metadata.
+- **Quota Limits:** Displays your 5-hour and weekly quota remaining:
+  - Green: 40% or more remaining
+  - Yellow: 20% to 39% remaining
+  - Red: Under 20% remaining
+- **Context Meter:** 5-block gauge (`[██░░░] 45.2%`) tracking token capacity.
+
+## Responsive Screen Sizing
+
+To prevent long lines from wrapping on narrow screens or mobile viewports, the statusline automatically adapts based on terminal column width:
+
+| Terminal Width | Displayed Segments | Context Bar Format |
+| :--- | :--- | :--- |
+| **85+ columns** | Mode, Model, Git, Quota, Context | Full 5-block gauge (`[██░░░] 45.2%`) |
+| **70 to 84 columns** | Mode, Model, Git, Quota, Context | Number only (`Ctx: 45%`) |
+| **Under 70 columns** | Mode, Model, Git, Quota | Context hidden to keep quota visible |
 
 ## Prerequisites
 
-A patched Nerd Font is required to display status icons (shield, Git branch, and SSH indicators). JetBrains Mono Nerd Font is recommended.
+A patched Nerd Font is required to display status icons (shield, Git branch, and SSH badges). JetBrains Mono Nerd Font is recommended.
 
 ### Installing a Nerd Font
 
@@ -74,83 +154,25 @@ termux-reload-settings
 
 ### Terminal Font Activation
 
-After installing, set your terminal emulator font family to `JetBrainsMono Nerd Font`:
-- Windows Terminal: Settings > Defaults > Appearance > Font face > `JetBrainsMono Nerd Font`
-- WezTerm: Set `font = wezterm.font("JetBrainsMono Nerd Font")` in `wezterm.lua`
-- Alacritty: Set `font.normal.family = "JetBrainsMono Nerd Font"` in `alacritty.toml`
-- Kitty: Set `font_family JetBrainsMono Nerd Font` in `kitty.conf`
-- iTerm2: Preferences > Profiles > Text > Font > `JetBrainsMono Nerd Font`
-
-## Installation
-
-### One-Line Quickstart
-
-#### Linux, macOS, WSL, Android Termux
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.sh | bash
-```
-
-The installer detects your operating system and architecture, installs the native binary into `~/.local/bin/agy-statusline`, and automatically updates `~/.gemini/antigravity-cli/settings.json`. If precompiled binaries cannot be fetched or Cargo is not present, it automatically falls back to `src/statusline.py`.
-
-#### Windows (PowerShell)
-
-```powershell
-irm https://raw.githubusercontent.com/zaheen4/agy-statusline/main/install.ps1 | iex
-```
-
-### Manual Configuration
-
-To manually configure `agy-statusline`, add the following block to `~/.gemini/antigravity-cli/settings.json` (or `%USERPROFILE%\.gemini\antigravity-cli\settings.json` on Windows):
-
-Using the compiled native binary:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "/home/your-user/.local/bin/agy-statusline",
-    "enabled": true
-  }
-}
-```
-
-Using the canonical Bash script:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "/home/your-user/.config/agy/statusline.sh",
-    "enabled": true
-  }
-}
-```
-
-Using the Python reference engine:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "python3 /path/to/agy-statusline/src/statusline.py",
-    "enabled": true
-  }
-}
-```
+After installing, set your terminal font to `JetBrainsMono Nerd Font`:
+- **Windows Terminal:** Settings > Defaults > Appearance > Font face > `JetBrainsMono Nerd Font`
+- **WezTerm:** Add `font = wezterm.font("JetBrainsMono Nerd Font")` in `wezterm.lua`
+- **Alacritty:** Set `font.normal.family = "JetBrainsMono Nerd Font"` in `alacritty.toml`
+- **Kitty:** Set `font_family JetBrainsMono Nerd Font` in `kitty.conf`
+- **iTerm2:** Preferences > Profiles > Text > Font > `JetBrainsMono Nerd Font`
 
 ## Quota Telemetry & Lazy Background Caching
 
-All `agy-statusline` engines (Rust, Python, and Bash) ingest model quota fractions directly from Antigravity's in-band `stdin` JSON stream during active turns.
+During active Antigravity sessions, model quotas stream directly through standard input on every turn.
 
-When in-band `.quota` telemetry is omitted, engines fall back to `/tmp/agy_quota_cache.json` using **Lazy On-Demand Background Refresh**:
-- **Zero Idle Drain:** When Antigravity is closed or inactive, background execution frequency is strictly 0, saving CPU cycles and laptop battery.
-- **Asynchronous Spawn:** When Antigravity is active and the cache is older than 30 minutes, a non-blocking background fetcher (`fetch-quota.sh`) is spawned detached. The current prompt render never blocks or lags.
-- **Offline Safe & Browser Suppressed:** Pre-flight connectivity checks exit quietly when disconnected without spawning interactive OAuth browser windows.
+When quota data is not present in the stream, engines read from `/tmp/agy_quota_cache.json` using **Lazy On-Demand Background Refresh**:
+- **Zero Idle Drain:** When Antigravity is closed or inactive, background execution stops completely, preserving laptop battery.
+- **Non-Blocking Fetch:** When Antigravity is running and the cache is older than 30 minutes, an asynchronous worker (`fetch-quota.sh`) refreshes data in the background without pausing prompt rendering.
+- **Offline Safe:** Performs a fast connectivity check before querying APIs. If your machine is offline, it exits quietly without opening browser windows.
 
 ### Optional Fixed-Interval Poller (Systemd)
 
-For workflows requiring scheduled 10-minute cache updates even when the CLI is closed, systemd user units are provided in `systemd/`:
+If you prefer a scheduled background timer that updates the cache every 10 minutes even when Antigravity is not open, optional systemd user units are provided in `systemd/`:
 
 ```bash
 mkdir -p ~/.config/systemd/user ~/.config/agy-statusline
@@ -164,47 +186,27 @@ systemctl --user daemon-reload
 systemctl --user enable --now agy-quota-cache.timer
 ```
 
-## Palettes and Themes
-
-Preconfigured themes are located in the `themes/` directory:
-
-- `themes/catppuccin.json`: Catppuccin Mocha palette
-- `themes/tokyo-night.json`: Tokyo Night palette
-- `themes/nord.json`: Nord palette
-
 ## Testing & Verification
 
-Simulate incoming Antigravity session payloads via stdin across each responsive tier:
-
-Tier 1 (Width >= 85 cols: full 5-block gauge):
+Test statusline rendering by piping sample telemetry data through any engine:
 
 ```bash
 echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
 ```
 
-Tier 2 (70 <= Width < 85 cols: compact numeric context):
+Expected output:
 
-```bash
-echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":75,"vcs":{"branch":"main","dirty":false},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
+```text
+ AUTO  │ 3.8 Flash [H] │ 󰘬 main* │ 5h: 87% (Wk: 25%) │ Ctx: [█░░░░] 25.4%
 ```
 
-Tier 3 (Width < 70 cols: context omitted, quota preserved):
-
-```bash
-echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":60,"vcs":{"branch":"feature/auth","dirty":false},"quota":{"3p-5h":{"remaining_fraction":1.0},"3p-weekly":{"remaining_fraction":1.0}}}' | ./target/release/agy-statusline
-```
-
-Python fallback verification:
-
-```bash
-echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":100,"vcs":{"branch":"feature/auth","dirty":false},"context_window":{"used_percentage":15.0}}' | python3 src/statusline.py
-```
+Test the Python or Bash engines with the same command by substituting `python3 src/statusline.py` or `./src/statusline.sh`.
 
 ## Troubleshooting
 
-- Status icons render as question marks or rectangles: Verify that a Nerd Font (such as JetBrains Mono Nerd Font) is active in your terminal emulator.
-- No Git branch appears: Git status is read from Antigravity session metadata. Outside of a Git repository, the branch segment is automatically omitted.
-- Permission denied: Ensure executable permissions are set on the binary (`chmod +x ~/.local/bin/agy-statusline`).
+- **Icons appear as question marks or boxes:** Verify that a Nerd Font is installed and selected in your terminal settings.
+- **No Git branch appears:** Outside of a Git repository, the branch segment is hidden automatically. Inside a repository, branch names and uncommitted changes resolve automatically.
+- **Permission denied:** Ensure executable permissions are granted (`chmod +x ~/.local/bin/agy-statusline`).
 
 ## License
 
