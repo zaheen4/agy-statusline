@@ -2,11 +2,9 @@
 
 A fast, clean status bar for the Google Antigravity CLI (`agy`).
 
-```text
- AUTO  │ 3.8 Flash [H] │ 󰘬 main* │ 5h: 87% (Wk: 25%) │ Ctx: [█░░░░] 25.4%
- ─────   ─────────────   ───────   ─────────────────   ──────────────────
- Mode    Model & Think   Branch    Remaining Quota     Context Window
-```
+<p align="center">
+  <img src="assets/preview.png" alt="agy-statusline preview" width="840">
+</p>
 
 Engineered for terminal emulators, remote SSH sessions, and Android Termux.
 
@@ -98,8 +96,8 @@ Using the Python script:
 
 - **Mode Badge:** Displays the active agent mode (`AUTO`, `PLAN`, `EDITS`, `DEFAULT`) with high-contrast ANSI colors.
 - **Model & Thinking Level:** Displays a shortened model name and bracketed reasoning effort (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
-- **Security & Remote Badges:** Displays `` when the Antigravity sandbox is active, and `󰢹 SSH` during remote terminal sessions.
-- **Git Branch:** Displays the current Git branch and an uncommitted changes marker (`*`). Reads directly from `.git/HEAD` with sub-millisecond fallback when Antigravity omits VCS metadata.
+- **Security & Remote Badges:** Displays a shield icon when the Antigravity sandbox is active, and an SSH indicator during remote terminal sessions.
+- **Git Branch:** Displays the Git branch icon with current branch name and uncommitted changes marker (`*`). Reads directly from `.git/HEAD` with sub-millisecond fallback when Antigravity omits VCS metadata.
 - **Quota Limits:** Displays your 5-hour and weekly quota remaining:
   - Green: 40% or more remaining
   - Yellow: 20% to 39% remaining
