@@ -95,10 +95,15 @@ Using the Python script:
 ## What Each Segment Shows
 
 - **Mode Badge:** Displays the active agent mode (`AUTO`, `PLAN`, `EDITS`, `DEFAULT`) with high-contrast ANSI colors.
-- **Model & Thinking Level:** Displays a shortened model name and bracketed reasoning effort (`[XH]`, `[MAX]`, `[H]`, `[M]`, `[L]`, `[T]`).
+- **Model & Thinking Level:** Automatically cleans vendor brand prefixes and normalizes model display names and raw kebab-case IDs:
+  - **Gemini 4 Family (Pro, Ultra, Enterprise):** `4 Carbon`, `4 Argon`, `4 Hydrogen`, and hybrid `Orch Carbon` / `Orch Argon`.
+  - **Gemini 3/2.5 Lineup:** `3.8 Flash`, `3.7 Flash`, `3.1 Pro`, `2.5 Pro`.
+  - **Anthropic Claude (Ultra & Enterprise):** `3.7 Sonnet`, `3.5 Sonnet`, `3.5 Haiku`, `Sonnet 4.6`, `Opus 4.6`, and `Sonnet 5.5`.
+  - **OpenAI & Open-Weights:** `GPT-OSS 120B`.
+  - **Reasoning Effort Badges:** Dynamic bracketed tags indicating compute budget: `[XH]` (Extra High), `[MAX]` (Max), `[H]` (High), `[M]` (Medium), `[L]` (Low), and `[T]` (Thinking).
 - **Security & Remote Badges:** Displays a shield icon when the Antigravity sandbox is active, and an SSH indicator during remote terminal sessions.
 - **Git Branch:** Displays the Git branch icon with current branch name and uncommitted changes marker (`*`). Reads directly from `.git/HEAD` with sub-millisecond fallback when Antigravity omits VCS metadata.
-- **Quota Limits:** Displays your 5-hour and weekly quota remaining:
+- **Quota Limits:** Automatically tracks the active model's backend quota pool (`Gemini Models` or `Claude and GPT models`) showing 5-hour and weekly capacity:
   - Green: 40% or more remaining
   - Yellow: 20% to 39% remaining
   - Red: Under 20% remaining

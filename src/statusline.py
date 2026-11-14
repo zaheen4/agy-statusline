@@ -26,7 +26,67 @@ def get_terminal_width(payload):
 
 def format_model(model_raw):
     raw = (model_raw or "Gemini").strip()
+    if not raw:
+        return "Gemini"
+
+    lower_raw = raw.lower()
+    if any(lower_raw.startswith(p) for p in ("gemini-", "claude-", "gpt-oss-", "orchestrator-", "orch-")):
+        id_str = lower_raw
+        effort = ""
+        if id_str.endswith("-xhigh") or id_str.endswith("-extra-high"):
+            effort = " [XH]"
+            id_str = id_str[:-6] if id_str.endswith("-xhigh") else id_str[:-11]
+        elif id_str.endswith("-max"):
+            effort = " [MAX]"
+            id_str = id_str[:-4]
+        elif id_str.endswith("-high"):
+            effort = " [H]"
+            id_str = id_str[:-5]
+        elif id_str.endswith("-medium") or id_str.endswith("-med"):
+            effort = " [M]"
+            id_str = id_str[:-7] if id_str.endswith("-medium") else id_str[:-4]
+        elif id_str.endswith("-low"):
+            effort = " [L]"
+            id_str = id_str[:-4]
+        elif id_str.endswith("-thinking") or id_str.endswith("-think"):
+            effort = " [T]"
+            id_str = id_str[:-9] if id_str.endswith("-thinking") else id_str[:-6]
+
+        mapping = {
+            "gemini-4-carbon": "4 Carbon",
+            "gemini-4-argon": "4 Argon",
+            "gemini-4-hydrogen": "4 Hydrogen",
+            "orchestrator-carbon": "Orch Carbon",
+            "orch-carbon": "Orch Carbon",
+            "orchestrator-argon": "Orch Argon",
+            "orch-argon": "Orch Argon",
+            "gemini-3.8-flash": "3.8 Flash",
+            "gemini-3.7-flash": "3.7 Flash",
+            "gemini-3.1-pro": "3.1 Pro",
+            "gemini-2.5-pro": "2.5 Pro",
+            "gemini-2.5-flash": "2.5 Flash",
+            "gemini-2.0-flash": "2.0 Flash",
+            "claude-3-7-sonnet": "3.7 Sonnet",
+            "claude-3-5-sonnet": "3.5 Sonnet",
+            "claude-3-5-haiku": "3.5 Haiku",
+            "claude-sonnet-4-6": "Sonnet 4.6",
+            "claude-opus-4-6": "Opus 4.6",
+            "claude-sonnet-5-5": "Sonnet 5.5",
+            "claude-opus-5-5": "Opus 5.5",
+            "claude-haiku-5-5": "Haiku 5.5",
+            "gpt-oss-120b": "GPT-OSS 120B",
+        }
+        if id_str in mapping:
+            base = mapping[id_str]
+            if not effort:
+                if "4-6" in id_str:
+                    effort = " [T]"
+                elif "gpt-oss" in id_str:
+                    effort = " [M]"
+            return f"{base}{effort}"
+
     effort = ""
+    lower = raw.lower()
     if re.search(r'\((Extra High|XHigh)\)', raw, re.IGNORECASE):
         effort = " [XH]"
     elif re.search(r'\(Max\)', raw, re.IGNORECASE):
@@ -40,9 +100,16 @@ def format_model(model_raw):
     elif re.search(r'\(Thinking\)', raw, re.IGNORECASE):
         effort = " [T]"
 
-    clean = re.sub(r'\s*\([^)]*\)$', '', raw).strip()
-    clean = re.sub(r'^(Gemini|Claude|Google)\s+', '', clean).strip()
-    return f"{clean}{effort}"
+    if lower.startswith("orchestrator (carbon)") or lower.startswith("orchestrator carbon"):
+        clean_str = "Orch Carbon"
+    elif lower.startswith("orchestrator (argon)") or lower.startswith("orchestrator argon"):
+        clean_str = "Orch Argon"
+    else:
+        clean = re.sub(r'\s*\([^)]*\)$', '', raw).strip()
+        clean = re.sub(r'^(Gemini|Claude|Google)\s+', '', clean).strip()
+        clean_str = clean
+
+    return f"{clean_str}{effort}"
 
 def build_context_gauge(pct_float, pct_int, cols):
     if cols >= 85:

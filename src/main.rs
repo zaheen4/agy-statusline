@@ -282,6 +282,81 @@ fn format_model(model_raw: &str) -> String {
         return "Gemini".to_string();
     }
 
+    // 1. Raw kebab-case ID normalization (e.g. gemini-4-carbon-high, claude-3-7-sonnet-thinking)
+    let lower_raw = raw.to_lowercase();
+    if lower_raw.starts_with("gemini-")
+        || lower_raw.starts_with("claude-")
+        || lower_raw.starts_with("gpt-oss-")
+        || lower_raw.starts_with("orchestrator-")
+        || lower_raw.starts_with("orch-")
+    {
+        let mut id_str = lower_raw.as_str();
+        let mut effort = "";
+        if id_str.ends_with("-xhigh") || id_str.ends_with("-extra-high") {
+            effort = " [XH]";
+            id_str = id_str.strip_suffix("-xhigh").or_else(|| id_str.strip_suffix("-extra-high")).unwrap_or(id_str);
+        } else if id_str.ends_with("-max") {
+            effort = " [MAX]";
+            id_str = id_str.strip_suffix("-max").unwrap_or(id_str);
+        } else if id_str.ends_with("-high") {
+            effort = " [H]";
+            id_str = id_str.strip_suffix("-high").unwrap_or(id_str);
+        } else if id_str.ends_with("-medium") || id_str.ends_with("-med") {
+            effort = " [M]";
+            id_str = id_str.strip_suffix("-medium").or_else(|| id_str.strip_suffix("-med")).unwrap_or(id_str);
+        } else if id_str.ends_with("-low") {
+            effort = " [L]";
+            id_str = id_str.strip_suffix("-low").unwrap_or(id_str);
+        } else if id_str.ends_with("-thinking") || id_str.ends_with("-think") {
+            effort = " [T]";
+            id_str = id_str.strip_suffix("-thinking").or_else(|| id_str.strip_suffix("-think")).unwrap_or(id_str);
+        }
+
+        let base_name = match id_str {
+            "gemini-4-carbon" => "4 Carbon",
+            "gemini-4-argon" => "4 Argon",
+            "gemini-4-hydrogen" => "4 Hydrogen",
+            "orchestrator-carbon" | "orch-carbon" => "Orch Carbon",
+            "orchestrator-argon" | "orch-argon" => "Orch Argon",
+            "gemini-3.8-flash" => "3.8 Flash",
+            "gemini-3.7-flash" => "3.7 Flash",
+            "gemini-3.1-pro" => "3.1 Pro",
+            "gemini-2.5-pro" => "2.5 Pro",
+            "gemini-2.5-flash" => "2.5 Flash",
+            "gemini-2.0-flash" => "2.0 Flash",
+            "claude-3-7-sonnet" => "3.7 Sonnet",
+            "claude-3-5-sonnet" => "3.5 Sonnet",
+            "claude-3-5-haiku" => "3.5 Haiku",
+            "claude-sonnet-4-6" => {
+                if effort.is_empty() { effort = " [T]"; }
+                "Sonnet 4.6"
+            }
+            "claude-opus-4-6" => {
+                if effort.is_empty() { effort = " [T]"; }
+                "Opus 4.6"
+            }
+            "claude-sonnet-5-5" => {
+                if effort.is_empty() { effort = " [T]"; }
+                "Sonnet 5.5"
+            }
+            "claude-opus-5-5" => {
+                if effort.is_empty() { effort = " [T]"; }
+                "Opus 5.5"
+            }
+            "claude-haiku-5-5" => "Haiku 5.5",
+            "gpt-oss-120b" => {
+                if effort.is_empty() { effort = " [M]"; }
+                "GPT-OSS 120B"
+            }
+            _ => "",
+        };
+
+        if !base_name.is_empty() {
+            return format!("{}{}", base_name, effort);
+        }
+    }
+
+    // 2. Display name normalization
     let mut effort = "";
     let lower = raw.to_lowercase();
     if lower.contains("(extra high)") || lower.contains("(xhigh)") {
@@ -298,19 +373,26 @@ fn format_model(model_raw: &str) -> String {
         effort = " [T]";
     }
 
-    let clean = if let Some(idx) = raw.find('(') {
-        raw[..idx].trim()
+    let clean_str = if lower.starts_with("orchestrator (carbon)") || lower.starts_with("orchestrator carbon") {
+        "Orch Carbon".to_string()
+    } else if lower.starts_with("orchestrator (argon)") || lower.starts_with("orchestrator argon") {
+        "Orch Argon".to_string()
     } else {
-        raw
-    };
+        let clean = if let Some(idx) = raw.find('(') {
+            raw[..idx].trim()
+        } else {
+            raw
+        };
 
-    let mut clean_str = clean.to_string();
-    for prefix in &["Gemini ", "Claude ", "Google "] {
-        if clean_str.starts_with(prefix) {
-            clean_str = clean_str[prefix.len()..].trim_start().to_string();
-            break;
+        let mut s = clean.to_string();
+        for prefix in &["Gemini ", "Claude ", "Google "] {
+            if s.starts_with(prefix) {
+                s = s[prefix.len()..].trim_start().to_string();
+                break;
+            }
         }
-    }
+        s
+    };
 
     format!("{}{}", clean_str, effort)
 }

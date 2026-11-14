@@ -32,12 +32,20 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: |
           echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline
+          echo '{"model":"Gemini 4 Carbon (High)","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline
+          echo '{"model":"gemini-4-hydrogen-xhigh","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline
+          echo '{"model":"Claude Sonnet 4.6 (Thinking)","cycle_mode":"auto","terminal_width":100,"quota":{"3p-5h":{"remaining_fraction":0.90},"3p-weekly":{"remaining_fraction":0.60}}}' | ./target/release/agy-statusline
+          echo '{"model":"GPT-OSS 120B (Medium)","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline
 
       - name: Validate Rust engine with mock payload (Windows)
         if: matrix.os == 'windows-latest'
         shell: bash
         run: |
           echo '{"model":"Gemini 3.8 Flash (High)","cycle_mode":"auto","terminal_width":100,"vcs":{"branch":"main","dirty":true},"quota":{"gemini-5h":{"remaining_fraction":0.87},"gemini-weekly":{"remaining_fraction":0.25}},"context_window":{"used_percentage":25.4}}' | ./target/release/agy-statusline.exe
+          echo '{"model":"Gemini 4 Carbon (High)","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline.exe
+          echo '{"model":"gemini-4-hydrogen-xhigh","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline.exe
+          echo '{"model":"Claude Sonnet 4.6 (Thinking)","cycle_mode":"auto","terminal_width":100,"quota":{"3p-5h":{"remaining_fraction":0.90},"3p-weekly":{"remaining_fraction":0.60}}}' | ./target/release/agy-statusline.exe
+          echo '{"model":"GPT-OSS 120B (Medium)","cycle_mode":"auto","terminal_width":100}' | ./target/release/agy-statusline.exe
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,7 +57,9 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           python -m py_compile src/statusline.py
-          echo '{"model":"Claude 3.7 Sonnet","cycle_mode":"default","terminal_width":100}' | python src/statusline.py
+          echo '{"model":"Claude 3.7 Sonnet (Thinking)","cycle_mode":"default","terminal_width":100}' | python src/statusline.py
+          echo '{"model":"Gemini 4 Argon (Medium)","cycle_mode":"auto","terminal_width":100}' | python src/statusline.py
+          echo '{"model":"claude-3-7-sonnet-thinking","cycle_mode":"auto","terminal_width":100}' | python src/statusline.py
 
       - name: Validate Bash engine and installer (Ubuntu)
         if: matrix.os == 'ubuntu-latest'
@@ -57,3 +67,5 @@ jobs:
           bash -n src/statusline.sh
           bash -n install.sh
           echo '{"model":"Gemini 2.5 Pro (Extra High)","cycle_mode":"auto","terminal_width":100}' | ./src/statusline.sh
+          echo '{"model":"Orchestrator (Carbon) (High)","cycle_mode":"auto","terminal_width":100}' | ./src/statusline.sh
+          echo '{"model":"GPT-OSS 120B (Medium)","cycle_mode":"auto","terminal_width":100}' | ./src/statusline.sh

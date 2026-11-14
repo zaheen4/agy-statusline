@@ -52,8 +52,67 @@ fi
 # Dynamic Model & Effort Normalizer
 format_model_name() {
   local raw="$1"
+  local lower
+  lower=$(echo "$raw" | tr '[:upper:]' '[:lower:]')
 
-  # 1. Parse effort levels
+  # 1. Raw kebab-case ID normalization
+  if [[ "$lower" =~ ^(gemini-|claude-|gpt-oss-|orchestrator-|orch-) ]]; then
+    local id_str="$lower"
+    local effort=""
+    if [[ "$id_str" =~ -xhigh$ ]] || [[ "$id_str" =~ -extra-high$ ]]; then
+      effort=" [XH]"
+      id_str="${id_str%-xhigh}"
+      id_str="${id_str%-extra-high}"
+    elif [[ "$id_str" =~ -max$ ]]; then
+      effort=" [MAX]"
+      id_str="${id_str%-max}"
+    elif [[ "$id_str" =~ -high$ ]]; then
+      effort=" [H]"
+      id_str="${id_str%-high}"
+    elif [[ "$id_str" =~ -medium$ ]] || [[ "$id_str" =~ -med$ ]]; then
+      effort=" [M]"
+      id_str="${id_str%-medium}"
+      id_str="${id_str%-med}"
+    elif [[ "$id_str" =~ -low$ ]]; then
+      effort=" [L]"
+      id_str="${id_str%-low}"
+    elif [[ "$id_str" =~ -thinking$ ]] || [[ "$id_str" =~ -think$ ]]; then
+      effort=" [T]"
+      id_str="${id_str%-thinking}"
+      id_str="${id_str%-think}"
+    fi
+
+    local base=""
+    case "$id_str" in
+      gemini-4-carbon) base="4 Carbon" ;;
+      gemini-4-argon) base="4 Argon" ;;
+      gemini-4-hydrogen) base="4 Hydrogen" ;;
+      orchestrator-carbon|orch-carbon) base="Orch Carbon" ;;
+      orchestrator-argon|orch-argon) base="Orch Argon" ;;
+      gemini-3.8-flash) base="3.8 Flash" ;;
+      gemini-3.7-flash) base="3.7 Flash" ;;
+      gemini-3.1-pro) base="3.1 Pro" ;;
+      gemini-2.5-pro) base="2.5 Pro" ;;
+      gemini-2.5-flash) base="2.5 Flash" ;;
+      gemini-2.0-flash) base="2.0 Flash" ;;
+      claude-3-7-sonnet) base="3.7 Sonnet" ;;
+      claude-3-5-sonnet) base="3.5 Sonnet" ;;
+      claude-3-5-haiku) base="3.5 Haiku" ;;
+      claude-sonnet-4-6) base="Sonnet 4.6"; [ -z "$effort" ] && effort=" [T]" ;;
+      claude-opus-4-6) base="Opus 4.6"; [ -z "$effort" ] && effort=" [T]" ;;
+      claude-sonnet-5-5) base="Sonnet 5.5"; [ -z "$effort" ] && effort=" [T]" ;;
+      claude-opus-5-5) base="Opus 5.5"; [ -z "$effort" ] && effort=" [T]" ;;
+      claude-haiku-5-5) base="Haiku 5.5" ;;
+      gpt-oss-120b) base="GPT-OSS 120B"; [ -z "$effort" ] && effort=" [M]" ;;
+    esac
+
+    if [ -n "$base" ]; then
+      echo "${base}${effort}"
+      return
+    fi
+  fi
+
+  # 2. Parse effort levels from display names
   local effort=""
   if [[ "$raw" =~ \([Ee]xtra[[:space:]]+[Hh]igh\) ]] || [[ "$raw" =~ \([Xx][Hh]igh\) ]]; then
     effort=" [XH]"
@@ -69,13 +128,18 @@ format_model_name() {
     effort=" [T]"
   fi
 
-  # 2. Strip trailing parenthetical text
-  local clean="${raw%% (*}"
-
-  # 3. Strip redundant provider brand prefix
-  clean="${clean#Gemini }"
-  clean="${clean#Claude }"
-  clean="${clean#Google }"
+  # 3. Handle Orchestrator titles
+  local clean=""
+  if [[ "$lower" =~ ^orchestrator[[:space:]]+\(carbon\) ]] || [[ "$lower" =~ ^orchestrator[[:space:]]+carbon ]]; then
+    clean="Orch Carbon"
+  elif [[ "$lower" =~ ^orchestrator[[:space:]]+\(argon\) ]] || [[ "$lower" =~ ^orchestrator[[:space:]]+argon ]]; then
+    clean="Orch Argon"
+  else
+    clean="${raw%% (*}"
+    clean="${clean#Gemini }"
+    clean="${clean#Claude }"
+    clean="${clean#Google }"
+  fi
 
   echo "${clean}${effort}"
 }
